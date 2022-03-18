@@ -9,12 +9,9 @@
 #define ORDER BRG
 #define FPS 30
 
-CRGB led[NUM_LEDS];
+CRGB leds[NUM_LEDS];
 CRGB currColor;
 uint8_t maxBrightness;
-
-// Pulse Variables
-uint8_t pulseCount = 1;
 
 /** 
  * Notes: 
@@ -33,7 +30,7 @@ void setup() {
   ArduinoCloud.begin(ArduinoIoTPreferredConnection);
 
   pinMode(MIC_PIN, INPUT);
-  FastLED.addLeds<LED_TYPE, LED_PIN, ORDER>(led, NUM_LEDS).setCorrection(TypicalLEDStrip);
+  FastLED.addLeds<LED_TYPE, LED_PIN, ORDER>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
   FastLED.setMaxPowerInVoltsAndMilliamps(12, 3500); // Limit power draw to 42 W, my power supply is rated for 60
 }
 
@@ -97,37 +94,28 @@ void onPulseChange() { // Represented as a "Smart Switch", Boolean
   pulse ? pulseOn() : updateStrip();
 }
 
-void pulseColor() {
-//  EVERY_N_MILLISECONDS(50) {
-//    for (int i = NUM_LEDS - 1; i > 0; i--) { // Has to go back to front, otherwise chain reaction will leave whole strip as the color
-//      led[i] = led[i - 1];
-//    }
-//    pulseCount++;
-//    sendPulse(2);
-    fadeToBlackBy(led, NUM_LEDS, 32);
-    int pos = beat8(FPS) % NUM_LEDS;
-    led[pos] = currColor;
-//  }
+void pulseColor() {    
+    for (int i = NUM_LEDS - 1; i > 0; i--) { // Has to go back to front, otherwise chain reaction will leave whole strip as the color
+      leds[i] = leds[i - 1];
+    }
+    
+    leds[0].fadeToBlackBy(32);
+
+    EVERY_N_MILLISECONDS(1000) {
+      sendPulse(currColor);
+    }
+
+    FastLED.delay(50);
 }
 
-void sendPulse(int numPulses) {
-  if (pulseCount % (NUM_LEDS / numPulses) == 0) {
-    led[0] = currColor;
-  } else {
-    led[0].fadeToBlackBy(32);
-  }
-}
-
-void startPulse() {
-  pulseCount = 1;
-  led[0] = currColor;
+void sendPulse(CRGB color) {
+  leds[0] = color;
 }
 
 void pulseOn() {
   fade = false;
   gamerLights = false;
   mic = false;
-  startPulse();
 }
 
 // ------------- Gamer Functions -------------
@@ -143,7 +131,7 @@ void swirlRainbow(uint8_t animSpeed) {
     // IMPORTANT: As of FastLED 3.003.003, fill rainbow has a random red pixel around hue = 60.
     // This is from a compiler optimization issue.
     // The workaround is to change the lines setting hsv.sat from 240 to 255 in colorutils.ccp
-    fill_rainbow(led, NUM_LEDS, beat8(FPS), 255 / NUM_LEDS);
+    fill_rainbow(leds, NUM_LEDS, beat8(FPS), 255 / NUM_LEDS);
   }
 }
 
@@ -173,9 +161,22 @@ void soundPulse() {
   EVERY_N_MILLISECONDS(50) {
     uint16_t vol = analogRead(MIC_PIN);
 //    Serial.println(vol);
-    fill_solid(led, NUM_LEDS, CHSV(beat8(FPS), 255, calcSCurve(vol)));
+    fill_solid(leds, NUM_LEDS, CHSV(beat8(FPS), 255, calcSCurve(vol)));
   }
 }
+
+// Pulse on sound
+//for (int i = NUM_LEDS - 1; i > 0; i--) { // Has to go back to front, otherwise chain reaction will leave whole strip as the color
+//  leds[i] = leds[i - 1];
+//}
+//
+//leds[0].fadeToBlackBy(32);
+//
+//if (analogRead(MIC_PIN) > 100) { 
+//  sendPulse(currColor);
+//}
+//
+//FastLED.delay(50);
 
 void micOn() {
   fade = false;
@@ -187,7 +188,7 @@ void micOn() {
 void updateStrip() {
   FastLED.setBrightness(maxBrightness);
   for (int i = 0; i < NUM_LEDS; i++) {
-    led[i] = currColor;
+    leds[i] = currColor;
     FastLED.show();
     FastLED.delay(1);
   }
