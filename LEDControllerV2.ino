@@ -39,7 +39,7 @@ void loop() {
 
   if (fade) { fadeColor(); }
   if (pulse) { pulseColor(); }
-  if (gamerLights) { swirlRainbow(2); }
+  if (gamerLights) { swirlRainbow(); }
   if (mic) { soundPulse(); }
   
   FastLED.show();
@@ -66,26 +66,6 @@ void onLightColorChange() { // Callback from event recieved by alexa on light st
   updateStrip();
 }
 
-// ------------- Fade Functions -------------
-void onFadeChange() { // Represented as a "Smart Switch", Boolean
-  Serial.println("Fade Change Recieved from Alexa");
-  Serial.println(fade);
-
-  fade ? fadeOn() : updateStrip();
-}
-
-void fadeColor() {
-  EVERY_N_MILLISECONDS(50) {
-    FastLED.setBrightness(beatsin8(FPS) * maxBrightness / 255); // Scale the brightness to the max
-  }
-}
-
-void fadeOn() {
-  pulse = false;
-  gamerLights = false;
-  mic = false;
-}
-
 // ------------- Pulse Functions -------------
 void onPulseChange() { // Represented as a "Smart Switch", Boolean
   Serial.println("Pulse Change Recieved from Alexa");
@@ -94,26 +74,56 @@ void onPulseChange() { // Represented as a "Smart Switch", Boolean
   pulse ? pulseOn() : updateStrip();
 }
 
-void pulseColor() {    
-    for (int i = NUM_LEDS - 1; i > 0; i--) { // Has to go back to front, otherwise chain reaction will leave whole strip as the color
-      leds[i] = leds[i - 1];
-    }
-    
-    leds[0].fadeToBlackBy(32);
+void sendPulse(bool (*conditionalFunc)(), CRGB color) {
+  for (int i = NUM_LEDS - 1; i > 0; i--) { // Has to go back to front, otherwise chain reaction will leave whole strip as the color
+    leds[i] = leds[i - 1];
+  }
 
-    EVERY_N_MILLISECONDS(1000) {
-      sendPulse(currColor);
-    }
+  leds[0].fadeToBlackBy(32);
 
-    FastLED.delay(50);
+  if (conditionalFunc()) {
+    leds[0] = color;
+  }
+
+  FastLED.delay(50);
 }
 
-void sendPulse(CRGB color) {
-  leds[0] = color;
+bool pulseTimer() {
+  EVERY_N_MILLISECONDS(1000) {
+    return true;
+  }
+  return false;
+}
+
+void pulseColor() { 
+  sendPulse(&pulseTimer, currColor);
 }
 
 void pulseOn() {
   fade = false;
+  gamerLights = false;
+  mic = false;
+}
+
+// ------------- Fade Functions -------------
+void onFadeChange() { // Represented as a "Smart Switch", Boolean
+  Serial.println("Fade Change Recieved from Alexa");
+  Serial.println(fade);
+
+  fade ? fadeOn() : updateStrip();
+}
+
+bool pulseSound() {
+  return analogRead(MIC_PIN) > 50;
+}
+
+void fadeColor() {
+//  FastLED.setBrightness(beatsin8(FPS) * maxBrightness / 255); // Scale the brightness to the max
+  sendPulse(&pulseSound, CHSV(beat8(FPS), 255, maxBrightness));
+}
+
+void fadeOn() {
+  pulse = false;
   gamerLights = false;
   mic = false;
 }
@@ -126,13 +136,11 @@ void onGamerLightsChange() { // Represented as a "Smart Switch", Boolean
   gamerLights ? gamerOn() : updateStrip();
 }
 
-void swirlRainbow(uint8_t animSpeed) {
-  EVERY_N_MILLISECONDS(50) {
-    // IMPORTANT: As of FastLED 3.003.003, fill rainbow has a random red pixel around hue = 60.
-    // This is from a compiler optimization issue.
-    // The workaround is to change the lines setting hsv.sat from 240 to 255 in colorutils.ccp
-    fill_rainbow(leds, NUM_LEDS, beat8(FPS), 255 / NUM_LEDS);
-  }
+void swirlRainbow() {
+  // IMPORTANT: As of FastLED 3.003.003, fill rainbow has a random red pixel around hue = 60.
+  // This is from a compiler optimization issue.
+  // The workaround is to change the lines setting hsv.sat from 240 to 255 in colorutils.ccp
+  fill_rainbow(leds, NUM_LEDS, beat8(FPS), 255 / NUM_LEDS);
 }
 
 void gamerOn() {
@@ -158,25 +166,10 @@ float calcSCurve(uint16_t vol) {
 }
 
 void soundPulse() {
-  EVERY_N_MILLISECONDS(50) {
-    uint16_t vol = analogRead(MIC_PIN);
-//    Serial.println(vol);
-    fill_solid(leds, NUM_LEDS, CHSV(beat8(FPS), 255, calcSCurve(vol)));
-  }
+  uint16_t vol = analogRead(MIC_PIN);
+//  Serial.println(vol);
+  fill_solid(leds, NUM_LEDS, CHSV(beat8(FPS), 255, calcSCurve(vol)));
 }
-
-// Pulse on sound
-//for (int i = NUM_LEDS - 1; i > 0; i--) { // Has to go back to front, otherwise chain reaction will leave whole strip as the color
-//  leds[i] = leds[i - 1];
-//}
-//
-//leds[0].fadeToBlackBy(32);
-//
-//if (analogRead(MIC_PIN) > 100) { 
-//  sendPulse(currColor);
-//}
-//
-//FastLED.delay(50);
 
 void micOn() {
   fade = false;
