@@ -38,9 +38,9 @@ void loop() {
   ArduinoCloud.update();
 
   if (fade) { fadeColor(); }
-  if (pulse) { pulseColor(); }
-  if (gamerLights) { swirlRainbow(); }
-  if (mic) { soundPulse(); }
+  else if (pulse) { pulseColor(); }
+  else if (gamerLights) { swirlRainbow(); }
+  else if (mic) { soundPulse(); }
   
   FastLED.show();
 }
@@ -58,7 +58,7 @@ void onLightColorChange() { // Callback from event recieved by alexa on light st
 
   if (lightColor.getSwitch()) {
     currColor = CRGB(r, g, b);
-    maxBrightness = lightColor.getBrightness() * 2.55;
+    maxBrightness = scale(lightColor.getBrightness(), 100, 255); // Scales brightness from 0-100 to 0-255
   } else {
     currColor = CRGB::Black;
   }
@@ -79,9 +79,9 @@ void sendPulse(bool (*conditionalFunc)(), CRGB color) {
     leds[i] = leds[i - 1];
   }
 
-  leds[0].fadeToBlackBy(32);
+  leds[0].fadeToBlackBy(64); // Creates a fading trail
 
-  if (conditionalFunc()) {
+  if (conditionalFunc()) { // Send a pulse if condition is met
     leds[0] = color;
   }
 
@@ -102,50 +102,6 @@ void pulseColor() {
 void pulseOn() {
   fade = false;
   gamerLights = false;
-  mic = false;
-}
-
-// ------------- Fade Functions -------------
-void onFadeChange() { // Represented as a "Smart Switch", Boolean
-  Serial.println("Fade Change Recieved from Alexa");
-  Serial.println(fade);
-
-  fade ? fadeOn() : updateStrip();
-}
-
-bool pulseSound() {
-  return analogRead(MIC_PIN) > 50;
-}
-
-void fadeColor() {
-//  FastLED.setBrightness(beatsin8(FPS) * maxBrightness / 255); // Scale the brightness to the max
-  sendPulse(&pulseSound, CHSV(beat8(FPS), 255, maxBrightness));
-}
-
-void fadeOn() {
-  pulse = false;
-  gamerLights = false;
-  mic = false;
-}
-
-// ------------- Gamer Functions -------------
-void onGamerLightsChange() { // Represented as a "Smart Switch", Boolean
-  Serial.println("Gamer Lights Change Recieved from Alexa");
-  Serial.println(gamerLights);
-
-  gamerLights ? gamerOn() : updateStrip();
-}
-
-void swirlRainbow() {
-  // IMPORTANT: As of FastLED 3.003.003, fill rainbow has a random red pixel around hue = 60.
-  // This is from a compiler optimization issue.
-  // The workaround is to change the lines setting hsv.sat from 240 to 255 in colorutils.ccp
-  fill_rainbow(leds, NUM_LEDS, beat8(FPS), 255 / NUM_LEDS);
-}
-
-void gamerOn() {
-  fade = false;
-  pulse = false;
   mic = false;
 }
 
@@ -177,12 +133,102 @@ void micOn() {
   gamerLights = false;
 }
 
+// ------------- Fade Functions -------------
+void onFadeChange() { // Represented as a "Smart Switch", Boolean
+  Serial.println("Fade Change Recieved from Alexa");
+  Serial.println(fade);
+
+  fade ? fadeOn() : updateStrip();
+}
+
+bool pulseSound() {
+  return analogRead(MIC_PIN) > x_nought;
+}
+
+// For the volume meter thing:
+//https://github.com/FastLED/FastLED/wiki/Gradient-color-palettes
+
+DEFINE_GRADIENT_PALETTE( heatmap ) {
+64,    0,   255,  0,   //green
+128,   255, 255,  0,   //yellow
+192,   255,  0,   0 }; //red
+CRGBPalette16 palette = heatmap;
+
+void fadeColor() {
+  // Original fade
+//  FastLED.setBrightness(beatsin8(FPS) * maxBrightness / 255); // Scale the brightness to the max
+
+  // Send pulse on threshold
+//  sendPulse(&pulseSound, CHSV(beat8(FPS), 255, maxBrightness));
+
+  // Volume meter
+  uint16_t vol = analogRead(MIC_PIN);
+  uint8_t maxHeatIndex = calcSCurve(vol); // Will never reach all active leds bc will never be 255
+  int mid = NUM_LEDS >> 1; // Divide by 2
+  uint16_t activeLEDs = scale(maxHeatIndex, 255, mid); // Scale volume to number of leds
+//  EVERY_N_SECONDS(1) {
+//    Serial.print(vol);
+//    Serial.print("\t");
+//    Serial.print(maxHeatIndex);
+//    Serial.print("\t");
+//    Serial.println(activeLEDs);
+//  }
+  // Display from mid to activeLEDs in each direction
+  for (int i = 0; i < activeLEDs; i++) {
+    uint8_t heatIndex = scale(i, activeLEDs, maxHeatIndex);
+    CRGB color = ColorFromPalette( palette, heatIndex);
+    leds[mid + i] = color;
+    leds[mid - i] = color;
+  }
+  fadeToBlackBy(leds, NUM_LEDS, 5);
+
+  // Linear sound bar
+//  for (int i = 0; i < activeLEDs; i++) {
+//    uint8_t heatIndex = scale(i, activeLEDs, maxHeatIndex);
+//    leds[i] = ColorFromPalette( palette, heatIndex);
+//  }
+
+//  fadeToBlackBy(&leds[activeLEDs], NUM_LEDS - activeLEDs, 5);
+}
+
+void fadeOn() {
+  pulse = false;
+  gamerLights = false;
+  mic = false;
+}
+
+// ------------- Gamer Functions -------------
+void onGamerLightsChange() { // Represented as a "Smart Switch", Boolean
+  Serial.println("Gamer Lights Change Recieved from Alexa");
+  Serial.println(gamerLights);
+
+  gamerLights ? gamerOn() : updateStrip();
+}
+
+void swirlRainbow() {
+  // IMPORTANT: As of FastLED 3.003.003, fill rainbow has a random red pixel around hue = 60.
+  // This is from a compiler optimization issue.
+  // The workaround is to change the lines setting hsv.sat from 240 to 255 in colorutils.ccp
+  fill_rainbow(leds, NUM_LEDS, beat8(FPS), 255 / NUM_LEDS);
+}
+
+void gamerOn() {
+  fade = false;
+  pulse = false;
+  mic = false;
+}
+
 // ------------- Common Functions -------------
 void updateStrip() {
   FastLED.setBrightness(maxBrightness);
-  for (int i = 0; i < NUM_LEDS; i++) {
-    leds[i] = currColor;
-    FastLED.show();
-    FastLED.delay(1);
+  if (!fade && !mic && !gamerLights) { // Functions that dont depend on currColor
+    for (int i = 0; i < NUM_LEDS; i++) {
+      leds[i] = currColor;
+      FastLED.delay(25);
+    }
   }
+}
+
+float scale(int value, int scaleFrom, int scaleTo) {
+  return (value * scaleTo) / scaleFrom;
 }
