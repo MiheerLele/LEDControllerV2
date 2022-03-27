@@ -19,8 +19,11 @@ uint8_t maxBrightness;
  * beatsin8() generates a pattern that resembles a sin wave
  */
 void setup() {
-  Serial.begin(9600);
-  for(unsigned long const serialBeginTime = millis(); !Serial && (millis() - serialBeginTime > 5000); ) { }
+  Serial.begin(115200);
+  // Use LED_BUILTIN to indicate when connected to Arduino IoT Cloud
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH); // On when disconnected, off when connected
+  for(unsigned long const serialBeginTime = millis(); !Serial && (millis() - serialBeginTime > 2000); ) { }
   // This delay gives the chance to wait for a Serial Monitor without blocking if none is found
 
   // Defined in thingProperties.h
@@ -28,10 +31,22 @@ void setup() {
 
   // Connect to Arduino IoT Cloud
   ArduinoCloud.begin(ArduinoIoTPreferredConnection);
+  ArduinoCloud.addCallback(ArduinoIoTCloudEvent::CONNECT, onIoTConnect);
+  ArduinoCloud.addCallback(ArduinoIoTCloudEvent::DISCONNECT, onIoTDisconnect);
 
   pinMode(MIC_PIN, INPUT);
   FastLED.addLeds<LED_TYPE, LED_PIN, ORDER>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
   FastLED.setMaxPowerInVoltsAndMilliamps(12, 3500); // Limit power draw to 42 W, my power supply is rated for 60
+}
+
+void onIoTConnect(){
+  digitalWrite(LED_BUILTIN, LOW);
+  Serial.println("Board successfully connected to Arduino IoT Cloud");
+}
+
+void onIoTDisconnect(){
+  digitalWrite(LED_BUILTIN, HIGH);
+  Serial.println("Board disconnected from Arduino IoT Cloud");
 }
 
 void loop() {
@@ -58,11 +73,10 @@ void onLightColorChange() { // Callback from event recieved by alexa on light st
 
   if (lightColor.getSwitch()) {
     currColor = CRGB(r, g, b);
-    maxBrightness = scale(lightColor.getBrightness(), 100, 255); // Scales brightness from 0-100 to 0-255
   } else {
     currColor = CRGB::Black;
   }
-  
+  maxBrightness = scale(lightColor.getBrightness(), 100, 255); // Scales brightness from 0-100 to 0-255
   updateStrip();
 }
 
@@ -145,34 +159,20 @@ bool pulseSound() {
   return analogRead(MIC_PIN) > x_nought;
 }
 
-// For the volume meter thing:
-//https://github.com/FastLED/FastLED/wiki/Gradient-color-palettes
-
 DEFINE_GRADIENT_PALETTE( heatmap ) {
+0,     0,   255,  0,   //green
 64,    0,   255,  0,   //green
 128,   255, 255,  0,   //yellow
-192,   255,  0,   0 }; //red
+192,   255,  0,   0,   //red
+255,   255,  0,   0 }; //red
 CRGBPalette16 palette = heatmap;
 
 void fadeColor() {
-  // Original fade
-//  FastLED.setBrightness(beatsin8(FPS) * maxBrightness / 255); // Scale the brightness to the max
-
-  // Send pulse on threshold
-//  sendPulse(&pulseSound, CHSV(beat8(FPS), 255, maxBrightness));
-
-  // Volume meter
   uint16_t vol = analogRead(MIC_PIN);
   uint8_t maxHeatIndex = calcSCurve(vol); // Will never reach all active leds bc will never be 255
   int mid = NUM_LEDS >> 1; // Divide by 2
   uint16_t activeLEDs = scale(maxHeatIndex, 255, mid); // Scale volume to number of leds
-//  EVERY_N_SECONDS(1) {
-//    Serial.print(vol);
-//    Serial.print("\t");
-//    Serial.print(maxHeatIndex);
-//    Serial.print("\t");
-//    Serial.println(activeLEDs);
-//  }
+
   // Display from mid to activeLEDs in each direction
   for (int i = 0; i < activeLEDs; i++) {
     uint8_t heatIndex = scale(i, activeLEDs, maxHeatIndex);
@@ -181,14 +181,6 @@ void fadeColor() {
     leds[mid - i] = color;
   }
   fadeToBlackBy(leds, NUM_LEDS, 5);
-
-  // Linear sound bar
-//  for (int i = 0; i < activeLEDs; i++) {
-//    uint8_t heatIndex = scale(i, activeLEDs, maxHeatIndex);
-//    leds[i] = ColorFromPalette( palette, heatIndex);
-//  }
-
-//  fadeToBlackBy(&leds[activeLEDs], NUM_LEDS - activeLEDs, 5);
 }
 
 void fadeOn() {
