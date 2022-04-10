@@ -2,11 +2,11 @@
 #include "thingProperties.h"
 #include <FastLED.h>
 
-#define NUM_LEDS 10 // 50
+#define NUM_LEDS 300
 #define LED_PIN 2
 #define MIC_PIN A2
-#define LED_TYPE WS2811
-#define ORDER BRG
+#define LED_TYPE WS2812
+#define ORDER GRB
 #define FPS 30
 
 CRGB leds[NUM_LEDS];
@@ -23,6 +23,7 @@ void setup() {
   // Use LED_BUILTIN to indicate when connected to Arduino IoT Cloud
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH); // On when disconnected, off when connected
+  analogReadResolution(8); // Decrease resolution to 8 bits (0-255), max resolution of nano 33 iot is 12 bits, default is 10
   for(unsigned long const serialBeginTime = millis(); !Serial && (millis() - serialBeginTime > 2000); ) { }
   // This delay gives the chance to wait for a Serial Monitor without blocking if none is found
 
@@ -129,16 +130,18 @@ void onMicChange() { // Represented as a "Smart Switch", Boolean
 
 // https://en.wikipedia.org/wiki/Logistic_function
 const uint8_t L = 255;
-const float k = -0.01;
-const uint8_t x_nought = 120;
-float calcSCurve(uint16_t vol) {
+const float k = -0.025;
+const uint8_t x_nought = L >> 1; // Half of the max
+float calcSCurve(uint8_t vol) {
   return (L / (1 + exp(k * (vol - x_nought))));
 }
 
 void soundPulse() {
-  uint16_t vol = analogRead(MIC_PIN);
-//  Serial.println(vol);
-  fill_solid(leds, NUM_LEDS, CHSV(beat8(FPS), 255, calcSCurve(vol)));
+  uint8_t vol = getVol();
+  Serial.println(vol);
+//  fill_solid(leds, NUM_LEDS, CHSV(beat8(FPS), 255, calcSCurve(vol)));
+  fill_solid(leds, NUM_LEDS, CHSV(beat8(FPS), 255, getVol()));
+
 }
 
 void micOn() {
@@ -168,8 +171,7 @@ DEFINE_GRADIENT_PALETTE( heatmap ) {
 CRGBPalette16 palette = heatmap;
 
 void fadeColor() {
-  uint16_t vol = analogRead(MIC_PIN);
-  uint8_t maxHeatIndex = calcSCurve(vol); // Will never reach all active leds bc will never be 255
+  uint8_t maxHeatIndex = getVol();
   int mid = NUM_LEDS >> 1; // Divide by 2
   uint16_t activeLEDs = scale(maxHeatIndex, 255, mid); // Scale volume to number of leds
 
@@ -180,7 +182,7 @@ void fadeColor() {
     leds[mid + i] = color;
     leds[mid - i] = color;
   }
-  fadeToBlackBy(leds, NUM_LEDS, 5);
+  fadeToBlackBy(leds, NUM_LEDS, 64);
 }
 
 void fadeOn() {
@@ -201,7 +203,9 @@ void swirlRainbow() {
   // IMPORTANT: As of FastLED 3.003.003, fill rainbow has a random red pixel around hue = 60.
   // This is from a compiler optimization issue.
   // The workaround is to change the lines setting hsv.sat from 240 to 255 in colorutils.ccp
-  fill_rainbow(leds, NUM_LEDS, beat8(FPS), 255 / NUM_LEDS);
+
+  // Two rainbows across the strip
+  fill_rainbow(leds, NUM_LEDS, beat8(FPS), 255 / (NUM_LEDS >> 1));
 }
 
 void gamerOn() {
@@ -216,11 +220,15 @@ void updateStrip() {
   if (!fade && !mic && !gamerLights) { // Functions that dont depend on currColor
     for (int i = 0; i < NUM_LEDS; i++) {
       leds[i] = currColor;
-      FastLED.delay(25);
     }
   }
 }
 
 float scale(int value, int scaleFrom, int scaleTo) {
   return (value * scaleTo) / scaleFrom;
+}
+
+// Assumes a analogReadResolution of 8 bits
+uint8_t getVol() {
+  return analogRead(MIC_PIN);
 }
