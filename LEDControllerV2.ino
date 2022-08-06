@@ -7,7 +7,8 @@
 #define MIC_PIN A2
 #define LED_TYPE WS2812
 #define ORDER GRB
-#define FPS 30
+#define FAST_FPS 30
+#define SLOW_FPS 5
 
 CRGB leds[NUM_LEDS];
 CRGB currColor;
@@ -100,7 +101,7 @@ void sendPulse(bool (*conditionalFunc)(), CRGB color) {
     leds[0] = color;
   }
 
-  FastLED.delay(50);
+  FastLED.delay(50); // Try and incorporate FPS with this?
 }
 
 bool pulseTimer() {
@@ -139,8 +140,8 @@ float calcSCurve(uint8_t vol) {
 void soundPulse() {
   uint8_t vol = getVol();
   Serial.println(vol);
-//  fill_solid(leds, NUM_LEDS, CHSV(beat8(FPS), 255, calcSCurve(vol)));
-  fill_solid(leds, NUM_LEDS, CHSV(beat8(FPS), 255, getVol()));
+//  fill_solid(leds, NUM_LEDS, CHSV(beat8(FAST_FPS), 255, calcSCurve(vol)));
+  fill_solid(leds, NUM_LEDS, CHSV(beat8(FAST_FPS), 255, getVol()));
 
 }
 
@@ -205,7 +206,7 @@ void swirlRainbow() {
   // The workaround is to change the lines setting hsv.sat from 240 to 255 in colorutils.ccp
 
   // Two rainbows across the strip
-  fill_rainbow(leds, NUM_LEDS, beat8(FPS), 255 / (NUM_LEDS >> 1));
+  fill_rainbow(leds, NUM_LEDS, beat8(SLOW_FPS), 255 / (NUM_LEDS >> 1));
 }
 
 void gamerOn() {
