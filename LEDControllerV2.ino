@@ -7,8 +7,7 @@
 #define MIC_PIN A2
 #define LED_TYPE WS2812
 #define ORDER GRB
-#define FAST_FPS 30
-#define SLOW_FPS 5
+#define FPS 5
 
 CRGB leds[NUM_LEDS];
 CRGB currColor;
@@ -21,12 +20,16 @@ uint8_t maxBrightness;
  */
 void setup() {
   Serial.begin(115200);
+
   // Use LED_BUILTIN to indicate when connected to Arduino IoT Cloud
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH); // On when disconnected, off when connected
-  analogReadResolution(8); // Decrease resolution to 8 bits (0-255), max resolution of nano 33 iot is 12 bits, default is 10
-  for(unsigned long const serialBeginTime = millis(); !Serial && (millis() - serialBeginTime > 2000); ) { }
+
+  // Decrease resolution to 8 bits (0-255), max resolution of nano 33 iot is 12 bits, default is 10
+  analogReadResolution(8);
+
   // This delay gives the chance to wait for a Serial Monitor without blocking if none is found
+  for(unsigned long const serialBeginTime = millis(); !Serial && (millis() - serialBeginTime > 2000); ) { }
 
   // Defined in thingProperties.h
   initProperties();
@@ -36,9 +39,12 @@ void setup() {
   ArduinoCloud.addCallback(ArduinoIoTCloudEvent::CONNECT, onIoTConnect);
   ArduinoCloud.addCallback(ArduinoIoTCloudEvent::DISCONNECT, onIoTDisconnect);
 
+  // Setup LEDs
   pinMode(MIC_PIN, INPUT);
   FastLED.addLeds<LED_TYPE, LED_PIN, ORDER>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
-  FastLED.setMaxPowerInVoltsAndMilliamps(12, 3500); // Limit power draw to 42 W, my power supply is rated for 60
+
+  // Limit power draw to 42 W, my power supply is rated for 60
+  FastLED.setMaxPowerInVoltsAndMilliamps(12, 3500);
 }
 
 void onIoTConnect(){
@@ -90,29 +96,19 @@ void onPulseChange() { // Represented as a "Smart Switch", Boolean
   pulse ? pulseOn() : updateStrip();
 }
 
-void sendPulse(bool (*conditionalFunc)(), CRGB color) {
-  for (int i = NUM_LEDS - 1; i > 0; i--) { // Has to go back to front, otherwise chain reaction will leave whole strip as the color
+void pulseColor() {
+  // Has to go back to front, otherwise chain reaction will leave whole strip as the color
+  for (int i = NUM_LEDS - 1; i > 0; i--) {
     leds[i] = leds[i - 1];
   }
 
   leds[0].fadeToBlackBy(64); // Creates a fading trail
 
-  if (conditionalFunc()) { // Send a pulse if condition is met
-    leds[0] = color;
+  EVERY_N_MILLISECONDS(1000) {
+    leds[0] = currColor;
   }
 
   FastLED.delay(50); // Try and incorporate FPS with this?
-}
-
-bool pulseTimer() {
-  EVERY_N_MILLISECONDS(1000) {
-    return true;
-  }
-  return false;
-}
-
-void pulseColor() { 
-  sendPulse(&pulseTimer, currColor);
 }
 
 void pulseOn() {
@@ -129,20 +125,8 @@ void onMicChange() { // Represented as a "Smart Switch", Boolean
   mic ? micOn() : updateStrip();
 }
 
-// https://en.wikipedia.org/wiki/Logistic_function
-const uint8_t L = 255;
-const float k = -0.025;
-const uint8_t x_nought = L >> 1; // Half of the max
-float calcSCurve(uint8_t vol) {
-  return (L / (1 + exp(k * (vol - x_nought))));
-}
-
 void soundPulse() {
-  uint8_t vol = getVol();
-  Serial.println(vol);
-//  fill_solid(leds, NUM_LEDS, CHSV(beat8(FAST_FPS), 255, calcSCurve(vol)));
-  fill_solid(leds, NUM_LEDS, CHSV(beat8(FAST_FPS), 255, getVol()));
-
+  fill_solid(leds, NUM_LEDS, CHSV(beat8(FPS), 255, getVol()));
 }
 
 void micOn() {
@@ -157,10 +141,6 @@ void onFadeChange() { // Represented as a "Smart Switch", Boolean
   Serial.println(fade);
 
   fade ? fadeOn() : updateStrip();
-}
-
-bool pulseSound() {
-  return analogRead(MIC_PIN) > x_nought;
 }
 
 DEFINE_GRADIENT_PALETTE( heatmap ) {
@@ -206,7 +186,7 @@ void swirlRainbow() {
   // The workaround is to change the lines setting hsv.sat from 240 to 255 in colorutils.ccp
 
   // Two rainbows across the strip
-  fill_rainbow(leds, NUM_LEDS, beat8(SLOW_FPS), 255 / (NUM_LEDS >> 1));
+  fill_rainbow(leds, NUM_LEDS, beat8(FPS), 255 / (NUM_LEDS >> 1));
 }
 
 void gamerOn() {
@@ -229,7 +209,17 @@ float scale(int value, int scaleFrom, int scaleTo) {
   return (value * scaleTo) / scaleFrom;
 }
 
+// https://en.wikipedia.org/wiki/Logistic_function
+const uint8_t L = 255;
+const float k = 0.02;
+const uint8_t x_nought = 2;
+float calcSCurve(uint8_t vol) {
+  return L / (1 + exp(x_nought - k * vol));
+}
+
 // Assumes a analogReadResolution of 8 bits
 uint8_t getVol() {
-  return analogRead(MIC_PIN);
+  uint8_t vol = calcSCurve(analogRead(MIC_PIN));
+  Serial.println(vol);
+  return vol;
 }
