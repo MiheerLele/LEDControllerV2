@@ -71,20 +71,18 @@ void loop() {
 // ------------- Color Functions -------------
 void onLightColorChange() { // Callback from event recieved by alexa on light strip status changed
   Serial.println("Color Change Recieved from Alexa");
-  Serial.println(lightColor.getSwitch());
-  byte r, g, b;
+  
+  uint8_t r, g, b;
   lightColor.getValue().getRGB(r, g, b);
+
+  Serial.println(lightColor.getSwitch());
   Serial.println(r);
   Serial.println(g);
   Serial.println(b);
   Serial.println(lightColor.getBrightness());
 
-  if (lightColor.getSwitch()) {
-    currColor = CRGB(r, g, b);
-  } else {
-    currColor = CRGB::Black;
-  }
-  maxBrightness = scale(lightColor.getBrightness(), 100, 255); // Scales brightness from 0-100 to 0-255
+  currColor = lightColor.getSwitch() ? CRGB(r, g, b) : CRGB::Black;
+  maxBrightness = scale(lightColor.getBrightness(), 100, UINT8_MAX);
   updateStrip();
 }
 
@@ -92,8 +90,7 @@ void onLightColorChange() { // Callback from event recieved by alexa on light st
 void onPulseChange() { // Represented as a "Smart Switch", Boolean
   Serial.println("Pulse Change Recieved from Alexa");
   Serial.println(pulse);
-
-  pulse ? pulseOn() : updateStrip();
+  onChange(&pulse);
 }
 
 void pulseColor() {
@@ -102,45 +99,29 @@ void pulseColor() {
     leds[i] = leds[i - 1];
   }
 
-  leds[0].fadeToBlackBy(64); // Creates a fading trail
+  leds[0].fadeToBlackBy(UINT8_MAX >> 1); // Dim by 1/2 per call
 
-  EVERY_N_MILLISECONDS(1000) {
+  EVERY_N_MILLISECONDS(1000 / FPS) {
     leds[0] = currColor;
   }
-
-  FastLED.delay(50); // Try and incorporate FPS with this?
-}
-
-void pulseOn() {
-  fade = false;
-  gamerLights = false;
-  mic = false;
 }
 
 // ------------- Mic Functions -------------
 void onMicChange() { // Represented as a "Smart Switch", Boolean
   Serial.println("Mic Change Recieved from Alexa");
   Serial.println(mic);
-
-  mic ? micOn() : updateStrip();
+  onChange(&mic);
 }
 
 void soundPulse() {
-  fill_solid(leds, NUM_LEDS, CHSV(beat8(FPS), 255, getVol()));
-}
-
-void micOn() {
-  fade = false;
-  pulse = false;
-  gamerLights = false;
+  fill_solid(leds, NUM_LEDS, CHSV(beat8(FPS), UINT8_MAX, getVol()));
 }
 
 // ------------- Fade Functions -------------
 void onFadeChange() { // Represented as a "Smart Switch", Boolean
   Serial.println("Fade Change Recieved from Alexa");
   Serial.println(fade);
-
-  fade ? fadeOn() : updateStrip();
+  onChange(&fade);
 }
 
 DEFINE_GRADIENT_PALETTE( heatmap ) {
@@ -153,31 +134,25 @@ CRGBPalette16 palette = heatmap;
 
 void fadeColor() {
   uint8_t maxHeatIndex = getVol();
-  int mid = NUM_LEDS >> 1; // Divide by 2
-  uint16_t activeLEDs = scale(maxHeatIndex, 255, mid); // Scale volume to number of leds
+  int mid = NUM_LEDS >> 1;
+  // Scale volume to half the led number
+  uint16_t activeLEDs = scale(maxHeatIndex, UINT8_MAX, mid);
 
   // Display from mid to activeLEDs in each direction
   for (int i = 0; i < activeLEDs; i++) {
     uint8_t heatIndex = scale(i, activeLEDs, maxHeatIndex);
-    CRGB color = ColorFromPalette( palette, heatIndex);
+    CRGB color = ColorFromPalette(palette, heatIndex);
     leds[mid + i] = color;
     leds[mid - i] = color;
   }
-  fadeToBlackBy(leds, NUM_LEDS, 64);
-}
-
-void fadeOn() {
-  pulse = false;
-  gamerLights = false;
-  mic = false;
+  fadeToBlackBy(leds, NUM_LEDS, UINT8_MAX >> 2); // Dim by 1/4 per call
 }
 
 // ------------- Gamer Functions -------------
 void onGamerLightsChange() { // Represented as a "Smart Switch", Boolean
   Serial.println("Gamer Lights Change Recieved from Alexa");
   Serial.println(gamerLights);
-
-  gamerLights ? gamerOn() : updateStrip();
+  onChange(&gamerLights);
 }
 
 void swirlRainbow() {
@@ -186,31 +161,38 @@ void swirlRainbow() {
   // The workaround is to change the lines setting hsv.sat from 240 to 255 in colorutils.ccp
 
   // Two rainbows across the strip
-  fill_rainbow(leds, NUM_LEDS, beat8(FPS), 255 / (NUM_LEDS >> 1));
-}
-
-void gamerOn() {
-  fade = false;
-  pulse = false;
-  mic = false;
+  fill_rainbow(leds, NUM_LEDS, beat8(FPS), UINT8_MAX / (NUM_LEDS >> 1));
 }
 
 // ------------- Common Functions -------------
 void updateStrip() {
   FastLED.setBrightness(maxBrightness);
-  if (!fade && !mic && !gamerLights) { // Functions that dont depend on currColor
-    for (int i = 0; i < NUM_LEDS; i++) {
-      leds[i] = currColor;
+
+  // Functions that dont depend on currColor
+  if (!fade && !mic && !gamerLights) {
+    for(CRGB& led : leds) {
+      led = currColor;
     }
   }
 }
 
+// If switch is ON, deactivate all others
+CloudSwitch* cswitches[4] = { &pulse, &fade, &gamerLights, &mic };
+void onChange(CloudSwitch* ptr) {
+  for(CloudSwitch*& cswitch : cswitches) {
+    *cswitch = (cswitch == ptr && *ptr == true);
+  }
+  updateStrip();
+}
+
+// Scales value from 0-scaleFrom to 0-scaleTo
+// Ex. scale(50, 100, 700) would return 350
 float scale(int value, int scaleFrom, int scaleTo) {
   return (value * scaleTo) / scaleFrom;
 }
 
 // https://en.wikipedia.org/wiki/Logistic_function
-const uint8_t L = 255;
+const uint8_t L = UINT8_MAX;
 const float k = 0.02;
 const uint8_t x_nought = 2;
 float calcSCurve(uint8_t vol) {
